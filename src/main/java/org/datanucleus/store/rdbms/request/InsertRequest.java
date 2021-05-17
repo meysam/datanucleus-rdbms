@@ -69,6 +69,7 @@ import org.datanucleus.store.rdbms.RDBMSStoreManager;
 import org.datanucleus.store.rdbms.SQLController;
 import org.datanucleus.store.rdbms.adapter.DatastoreAdapter;
 import org.datanucleus.store.rdbms.fieldmanager.ParameterSetter;
+import org.datanucleus.store.rdbms.table.ClassTable;
 import org.datanucleus.store.rdbms.table.Column;
 import org.datanucleus.store.rdbms.table.DatastoreClass;
 import org.datanucleus.store.rdbms.table.SecondaryTable;
@@ -274,6 +275,10 @@ public class InsertRequest extends Request
                     pkColumnNames = Stream.of(columnMappings)
                         .map(cm -> cm.getColumn().getIdentifier().getName())
                         .collect(toList());
+                } else if (table.getIdentityType() == IdentityType.APPLICATION) {
+                    for (Column column : ((ClassTable) table).getPrimaryKey().getColumns()) {
+                        pkColumnNames.add(column.getName());
+                    }
                 }
 
                 PreparedStatement ps = sqlControl.getStatementForUpdate(mconn, insertStmt, batch,
