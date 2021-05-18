@@ -11,7 +11,7 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
- 
+
 
 Contributors:
 2003 Erik Bengtson - the fields to fetch are better managed for application
@@ -56,6 +56,7 @@ import org.datanucleus.state.ActivityState;
 import org.datanucleus.state.ObjectProvider;
 import org.datanucleus.store.connection.ManagedConnection;
 import org.datanucleus.store.rdbms.identifier.DatastoreIdentifier;
+import org.datanucleus.store.rdbms.key.PrimaryKey;
 import org.datanucleus.store.rdbms.mapping.MappingCallbacks;
 import org.datanucleus.store.rdbms.mapping.MappingConsumer;
 import org.datanucleus.store.rdbms.mapping.MappingType;
@@ -79,19 +80,19 @@ import org.datanucleus.util.NucleusLogger;
 import org.datanucleus.util.StringUtils;
 
 /**
- * Class to provide a means of insertion of records to RDBMS. 
+ * Class to provide a means of insertion of records to RDBMS.
  * Extends basic request class implementing the execute method to do a JDBC insert operation.
  * The SQL will be of the form
  * <pre>
  * INSERT INTO TBL_NAME (col1, col2, col3, ...) VALUES (?, ?, ?, ...)
  * </pre>
  * <p>
- * When inserting an object with inheritance this will involve 1 InsertRequest for each table involved. 
+ * When inserting an object with inheritance this will involve 1 InsertRequest for each table involved.
  * So if we have a class B that extends class A and they both use "new-table" inheritance strategy, we will have 2 InsertRequests, one for table A, and one for table B.
  * </p>
  * <p>
- * When the InsertRequest starts to populate its statement and it has a PC field, this calls PersistableMapping.setObject(). 
- * This then checks if the other PC object is yet persistent and, if not, will persist it before processing this objects INSERT. 
+ * When the InsertRequest starts to populate its statement and it has a PC field, this calls PersistableMapping.setObject().
+ * This then checks if the other PC object is yet persistent and, if not, will persist it before processing this objects INSERT.
  * This forms the key to "persistence-by-reachability".
  * </p>
  */
@@ -223,7 +224,7 @@ public class InsertRequest extends Request
     }
 
     /**
-     * Method performing the insertion of the record from the datastore. 
+     * Method performing the insertion of the record from the datastore.
      * Takes the constructed insert query and populates with the specific record information.
      * @param op The ObjectProvider for the record to be inserted
      */
@@ -240,6 +241,8 @@ public class InsertRequest extends Request
         {
             VersionMetaData vermd = table.getVersionMetaData();
             RDBMSStoreManager storeMgr = table.getStoreManager();
+            String datastoreProductName =storeMgr.getDatastoreAdapter().getDatastoreProductName();
+
             if (vermd != null && vermd.getFieldName() != null)
             {
                 // Version field - Update the version in the object
@@ -267,6 +270,7 @@ public class InsertRequest extends Request
             ManagedConnection mconn = storeMgr.getConnectionManager().getConnection(ec);
             try
             {
+                List<Column> pkColumns =((ClassTable) table).getPrimaryKey().getColumns();
                 List<String> pkColumnNames = new ArrayList<>();
                 if (table.getIdentityType() == IdentityType.DATASTORE)
                 {
@@ -275,8 +279,9 @@ public class InsertRequest extends Request
                     pkColumnNames = Stream.of(columnMappings)
                         .map(cm -> cm.getColumn().getIdentifier().getName())
                         .collect(toList());
-                } else if (table.getIdentityType() == IdentityType.APPLICATION) {
-                    for (Column column : ((ClassTable) table).getPrimaryKey().getColumns()) {
+                    //If the product is Oracle, also if we have a sort of primary key, we should set the pkColumnNames to achieve auto-generated key in Oracle DB
+                } else if (table.getIdentityType() == IdentityType.APPLICATION && ! pkColumns.isEmpty() && datastoreProductName.equals("Oracle")) {
+                    for (Column column : pkColumns) {
                         pkColumnNames.add(column.getName());
                     }
                 }
@@ -326,12 +331,12 @@ public class InsertRequest extends Request
                                     // Set create timestamp to time for the start of this transaction
                                     if (mmd.getType().isAssignableFrom(java.time.Instant.class))
                                     {
-                                        op.replaceField(insertFieldNumbers[i], ec.getTransaction().getIsActive() ? 
+                                        op.replaceField(insertFieldNumbers[i], ec.getTransaction().getIsActive() ?
                                                 java.time.Instant.ofEpochMilli(ec.getTransaction().getBeginTime()) : java.time.Instant.now());
                                     }
                                     else
                                     {
-                                        op.replaceField(insertFieldNumbers[i], ec.getTransaction().getIsActive() ? 
+                                        op.replaceField(insertFieldNumbers[i], ec.getTransaction().getIsActive() ?
                                                 new Timestamp(ec.getTransaction().getBeginTime()) : new Timestamp(System.currentTimeMillis()));
                                     }
                                     // TODO Throw exception if invalid member type
@@ -396,7 +401,7 @@ public class InsertRequest extends Request
                     }
                     if (createTimestampStmtMapping != null)
                     {
-                        table.getSurrogateMapping(SurrogateColumnType.CREATE_TIMESTAMP, false).setObject(ec, ps, createTimestampStmtMapping.getParameterPositionsForOccurrence(0), 
+                        table.getSurrogateMapping(SurrogateColumnType.CREATE_TIMESTAMP, false).setObject(ec, ps, createTimestampStmtMapping.getParameterPositionsForOccurrence(0),
                             new Timestamp(ec.getTransaction().getIsActive() ? ec.getTransaction().getBeginTime() : System.currentTimeMillis()));
                     }
 
@@ -674,7 +679,7 @@ public class InsertRequest extends Request
                 if (psAutoIncrement != null)
                 {
                     psAutoIncrement.close();
-                }                            
+                }
             }
         }
 
@@ -1166,7 +1171,7 @@ public class InsertRequest extends Request
          * @param stmtExprIndex The current external mapping indices
          * @return The updated external mapping indices
          */
-        private StatementMappingIndex[] processExternalMapping(JavaTypeMapping mapping, 
+        private StatementMappingIndex[] processExternalMapping(JavaTypeMapping mapping,
                 StatementMappingIndex[] fieldStmtExprIndex, StatementMappingIndex[] stmtExprIndex)
         {
             // Check that we dont already have this as a field
@@ -1219,7 +1224,7 @@ public class InsertRequest extends Request
                 param[i] = paramIndex++;
             }
             stmtExprIndex[pos].addParameterOccurrence(param);
-            
+
             return stmtExprIndex;
         }
 
@@ -1233,7 +1238,7 @@ public class InsertRequest extends Request
 
         /**
          * Accessor for the numbers of the fields to be inserted (excluding PK fields).
-         * @return the array of field numbers 
+         * @return the array of field numbers
          */
         public int[] getInsertFieldNumbers()
         {
@@ -1247,7 +1252,7 @@ public class InsertRequest extends Request
 
         /**
          * Accessor for the numbers of the PK fields.
-         * @return the array of primary key field numbers 
+         * @return the array of primary key field numbers
          */
         public int[] getPrimaryKeyFieldNumbers()
         {
@@ -1261,7 +1266,7 @@ public class InsertRequest extends Request
 
         /**
          * Accessor for the numbers of the reachable fields (not inserted).
-         * @return the array of field numbers 
+         * @return the array of field numbers
          */
         public int[] getReachableFieldNumbers()
         {
@@ -1275,7 +1280,7 @@ public class InsertRequest extends Request
 
         /**
          * Accessor for the numbers of the relation fields (not inserted).
-         * @return the array of field numbers 
+         * @return the array of field numbers
          */
         public int[] getRelationFieldNumbers()
         {
@@ -1287,7 +1292,7 @@ public class InsertRequest extends Request
             return fieldNumbers;
         }
 
-        /** 
+        /**
          * Obtain the mappings for fields in the statement
          * @return the array of StatementMappingIndex
          */
@@ -1296,7 +1301,7 @@ public class InsertRequest extends Request
             return statementMappings;
         }
 
-        /** 
+        /**
          * Obtain the StatementExpressionIndex for the "reachable" fields.
          * @return the array of StatementExpressionIndex indexed by absolute field numbers
          */
@@ -1305,7 +1310,7 @@ public class InsertRequest extends Request
             return retrievedStatementMappings;
         }
 
-        /** 
+        /**
          * Obtain the mapping for the version in the statement
          * @return the StatementMappingIndex
          */
@@ -1314,7 +1319,7 @@ public class InsertRequest extends Request
             return versionStatementMapping;
         }
 
-        /** 
+        /**
          * Obtain the mapping for the discriminator in the statement
          * @return the StatementMappingIndex
          */
@@ -1323,7 +1328,7 @@ public class InsertRequest extends Request
             return discriminatorStatementMapping;
         }
 
-        /** 
+        /**
          * Obtain the mapping for multitenancy in the statement
          * @return the StatementMappingIndex
          */
@@ -1332,7 +1337,7 @@ public class InsertRequest extends Request
             return multitenancyStatementMapping;
         }
 
-        /** 
+        /**
          * Obtain the mapping for soft-delete in the statement
          * @return the StatementMappingIndex
          */
@@ -1361,7 +1366,7 @@ public class InsertRequest extends Request
             return updateTimestampStatementMapping;
         }
 
-        /** 
+        /**
          * Obtain the mapping for any external FKs in the statement
          * @return the StatementMappingIndex
          */
@@ -1370,7 +1375,7 @@ public class InsertRequest extends Request
             return externalFKStmtExprIndex;
         }
 
-        /** 
+        /**
          * Obtain the mapping for any external FK discriminators in the statement.
          * @return the StatementMappingIndex
          */
@@ -1379,7 +1384,7 @@ public class InsertRequest extends Request
             return externalFKDiscrimStmtExprIndex;
         }
 
-        /** 
+        /**
          * Obtain the mapping for any external indexes in the statement
          * @return the StatementMappingIndex
          */
